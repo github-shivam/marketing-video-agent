@@ -33,6 +33,122 @@ The critic loops back to the writer while `score < SCORE_THRESHOLD` **and**
 it back to the writer and resets the iteration count; rejecting without feedback
 ends the run.
 
+## How it works, in plain words
+
+Think of it as a small production team made of AI models, with you as the
+producer who signs off twice.
+
+1. **You give it an idea**: a topic ("explain how RAG works") or a link to a
+   product page. Optionally add a length (4–30 seconds).
+2. **It works out what you want.** The `classify` step decides what kind of video
+   this is (product promo, explainer, how-to, and so on), who it is for and what
+   tone fits. If you gave a link it reads the page first.
+3. **It researches the subject** for facts, hooks and things that can be filmed.
+4. **It writes a screenplay, and a critic marks it.** A writer drafts shot-by-shot
+   scenes (camera, action, dialogue, sound). A critic scores the draft from 0 to
+   10 and sends it back for another pass until it is good enough or the retry
+   limit is reached.
+5. **You approve the script (gate 1).** You see the exact text that will be sent
+   to the video model. This is free, so nothing is spent until you say yes.
+6. **It generates the video** with Google Veo 3.1 and saves the MP4 in `output/`.
+7. **You decide whether to post (gate 2).** The video is already saved. Say yes to
+   post it to Instagram, or no to keep it only.
+
+The text steps run on AWS Bedrock (Claude models). Video generation runs on
+Google Vertex AI (Veo). With no Google credentials it falls back to a free
+placeholder video made by ffmpeg, so you can try the whole flow at no cost.
+
+## How to run it
+
+### 1. Install
+
+You need Python 3.10+ and [ffmpeg](https://ffmpeg.org/download.html) on your PATH.
+
+```bash
+git clone https://github.com/<your-username>/marketing-video-agent.git
+cd marketing-video-agent
+
+python -m venv .venv
+.venv\Scripts\activate              # Windows
+# source .venv/bin/activate         # macOS / Linux
+
+pip install -r requirements-dev.txt
+```
+
+### 2. Configure
+
+```bash
+cp .env.example .env                # Windows PowerShell: copy .env.example .env
+```
+
+Open `.env` and set the minimum below. Leave everything else as it is.
+
+| What | Setting | Notes |
+|---|---|---|
+| AWS login for the text models | `AWS_PROFILE`, `BEDROCK_TEXT_REGION` | Run `aws sso login --profile <your-profile>` first |
+| One model per step | `MODEL_CLASSIFY`, `MODEL_RESEARCH`, `MODEL_WRITER`, `MODEL_CRITIC`, `MODEL_DIALOGUE`, `MODEL_CONVERSE` | Required. The values in `.env.example` work if your AWS account has access to them |
+| Safety switch | `DRY_RUN=true` | Keep it `true` until you want a real Instagram post |
+
+Leave `GOOGLE_CLOUD_PROJECT` and `VEO_GCS_BUCKET` blank to use the free stub video.
+Fill them in to generate real videos (see *Veo on Vertex AI* below). Keep `.env`
+private: it is gitignored and must never be committed.
+
+### 3. Check it works
+
+```bash
+pytest
+```
+
+All tests use fakes, so this needs no network and no credentials.
+
+### 4. Run it
+
+**From the command line (simplest)**
+
+```bash
+python main.py "explain how RAG works to non-technical people"
+python main.py https://example.com/product --seconds 20
+python main.py "a launch teaser for this" https://example.com --model seedance
+```
+
+| Option | Meaning |
+|---|---|
+| `--seconds N` | Video length, 4–30 (default 15) |
+| `--model veo\|seedance` | Which model's prompt style to write (Seedance is a stub for now) |
+| `--thread ID` | Name the run. Use the same ID later to resume a paused run |
+
+The program pauses twice and asks you a question in the terminal:
+
+- **Prompt review**: type `y` to generate, `n` to be asked what should change (it
+  then rewrites the script), or `q` to quit without generating.
+- **Video review**: type `y` to post to Instagram, `n` to keep the video unposted.
+
+The finished video and the prompts used are in `output/`.
+
+**As an HTTP API**
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # put this in .env as API_KEY
+python -m uvicorn api:create_app --factory --port 8000
+```
+
+Then open http://localhost:8000/docs. See *HTTP API* below for the routes.
+
+**Through WhatsApp**
+
+Run the API above, expose it over HTTPS, and connect it to a WhatsApp number. See
+*WhatsApp → Setting it up* below.
+
+### Common problems
+
+| Problem | Fix |
+|---|---|
+| Error naming a missing `MODEL_...` setting | Set that variable in `.env` |
+| AWS credential or "token expired" error | Run `aws sso login --profile <your-profile>` again |
+| ffmpeg not found | Install ffmpeg and reopen the terminal so PATH updates |
+| Nothing posts to Instagram | Expected while `DRY_RUN=true`. Set `false` only when ready |
+| Run stopped part-way | Re-run the same command with the same `--thread ID` |
+
 ## How the prompt is written
 
 The LLM writes **content**; code applies **syntax**. The writer fills a
@@ -408,26 +524,160 @@ number. Each number has its own conversation and cannot answer another's gate.
 
 ### Setting it up
 
-1. In the Meta app you already use for Instagram, add the **WhatsApp** product
-   and register a number (Meta's test number works for development, and can
-   message only numbers you add as recipients).
-2. Create a **System User** token with `whatsapp_business_messaging` and put it
-   in `WHATSAPP_ACCESS_TOKEN`. The 24-hour token on the getting-started page is
-   not enough. Fill the rest of the `WHATSAPP_*` settings from `.env.example`.
-3. Run the API and expose it over HTTPS (any tunnel works for development):
-   ```bash
-   .venv/Scripts/python.exe -m uvicorn api:create_app --factory --port 8000
-   ngrok http 8000
-   ```
-4. In *WhatsApp → Configuration*, set the callback URL to
-   `https://<your-host>/whatsapp/webhook` and the verify token to
-   `WHATSAPP_VERIFY_TOKEN`, then subscribe to the **messages** field.
-5. Message the number from an allowed phone.
+Allow 30 to 45 minutes the first time. You need a Meta developer account (log in
+at developers.facebook.com with a Facebook account), a phone with WhatsApp, and
+the API running somewhere Meta can reach over HTTPS.
 
-The webhook is authenticated by Meta's `X-Hub-Signature-256` HMAC of the body
-(not `X-API-Key`); an unsigned or wrongly signed delivery is a `401` and starts
-nothing. Leave every `WHATSAPP_*` setting blank and the routes do not exist.
-`/videos` and the CLI are unaffected.
+**How the pieces connect.** You never connect your computer to WhatsApp directly.
+Meta owns the WhatsApp number. You tell Meta two things: "this number belongs to
+my app", and "when a message arrives, send it to this web address" (the
+*webhook*). Meta then calls your server for every message, and your server
+replies by calling Meta back with an access token.
+
+```
+Your phone  →  Meta (owns the number)  →  public HTTPS address  →  your server
+Your phone  ←  Meta                    ←  your server replies using the access token
+```
+
+#### Step 1. Create the Meta app
+
+1. At developers.facebook.com, open **My Apps → Create App**.
+2. Give it a plain name (Meta rejects names containing "Meta", "Facebook",
+   "Instagram" or "WhatsApp").
+3. Choose the use case **Connect with customers through WhatsApp**. If you also
+   want Instagram posting, add that use case to the same app later; one app can
+   do both.
+4. When it asks for a **business portfolio**, pick one or create one. A brand-new
+   Facebook account may be told it is "too new to create a business account";
+   wait about an hour and try again.
+
+#### Step 2. Claim the free test number
+
+1. Open **Use cases → Connect with customers through WhatsApp → Customize**.
+2. Click **Step 1. Try it out** in the left menu. Meta creates a free **test
+   WhatsApp Business account** and a **test number** for you.
+3. Under **Recipient**, add your own phone and enter the verification code
+   WhatsApp sends you. The test number can only message phones you add here, up
+   to 5. Skip *Step 2. Production setup* and *Step 3. Business verification* for
+   now; they are only for a real number.
+4. Send Meta's sample "Hello World" message to confirm your phone receives it.
+   That proves the number, the account and your phone are linked.
+
+#### Step 3. Collect five values and put them in `.env`
+
+Never paste these into chat, email or a ticket, and never commit `.env`. Write
+each value after the `=` with no quotes, no spaces and no angle brackets.
+
+| Setting | Where to find it |
+|---|---|
+| `WHATSAPP_PHONE_NUMBER_ID` | On the Step 1 page, next to the test number, labelled **Phone number ID**. Not the phone number itself, and not the "WhatsApp Business account ID" beside it |
+| `WHATSAPP_ACCESS_TOKEN` | On the same page. See *Access tokens* below |
+| `WHATSAPP_APP_SECRET` | **App settings → Basic → App secret → Show**. This is the app's main secret. The **Instagram app secret** shown on the Instagram page is a different one and will not work here |
+| `WHATSAPP_VERIFY_TOKEN` | Any long random string you make up. You will paste the same string into Meta in Step 5 |
+| `WHATSAPP_ALLOWED_NUMBERS` | Your own phone, digits only with the country code first (for example, a number written `+91 98xxx xxxxx` becomes `9198xxxxxxxx`). Separate several with commas. `*` allows anyone, which you should not use while the bot can spend money and post for you |
+
+Leave `DRY_RUN=true` for the first tests so nothing is posted to Instagram.
+
+**Access tokens.** The token on the Step 1 page is **temporary and expires in
+about an hour**, which is fine for a first try. When it expires, the bot can still
+receive your messages but every reply is rejected, and the server log says the
+token is invalid or expired. For anything longer, create a **System User** token:
+
+1. At business.facebook.com, open **Business settings** for your portfolio.
+2. **Users → System users → Add**, give it a name and the **Admin** role.
+3. **Add assets**: give it full control of your app and of your WhatsApp account.
+4. **Generate new token**, choose your app, set expiry to **Never**, and tick
+   `whatsapp_business_messaging` and `whatsapp_business_management`.
+5. Put it in `WHATSAPP_ACCESS_TOKEN` and restart the server. The server reads
+   `.env` only at start-up, so any change needs a restart.
+
+#### Step 4. Start the server and a public address
+
+1. Set `API_KEY` in `.env` if you have not already (see *HTTP API*), then start
+   the API as described in *How to run it → As an HTTP API*, on port 8000.
+   If WhatsApp is only partly configured, the server refuses to start and names
+   the missing setting.
+2. Meta cannot reach `localhost`, so give the server a public HTTPS address. For
+   development, a tunnelling tool such as **ngrok** does this: create a free
+   account, install it, and point it at port 8000. It prints an
+   `https://…` address. Keep both programs running.
+3. Check the address works by opening it with `/health` on the end in a browser.
+   You should see a short "status ok" answer.
+
+A free tunnel address can change when the tunnel restarts. If it does, repeat
+Step 5 with the new address. A hosted server with a fixed address needs no
+tunnel.
+
+#### Step 5. Tell Meta where to send messages
+
+Your server's webhook address is your public address followed by
+`/whatsapp/webhook`.
+
+1. In the WhatsApp use case, open **Configuration**. In some dashboard layouts
+   this menu is hidden; try the dropdown at the top of the left menu, **Next
+   steps**, or **Tools**.
+2. Under **Webhook**, click **Edit**. Enter the webhook address as the **Callback
+   URL**, and your `WHATSAPP_VERIFY_TOKEN` as the **Verify token**.
+3. Click **Verify and save**. Meta calls your server once to check the token; this
+   only works while the server and the tunnel are running.
+4. Under **Webhook fields**, turn on **messages**.
+
+If the Configuration page cannot be found, the same two things can be done
+through Meta's Graph API: register the callback URL, verify token and the
+`messages` field on the app's WhatsApp subscription (this needs the app ID and
+the app secret), then subscribe your WhatsApp Business account to the app. Check
+the result by reading the subscriptions back.
+
+#### Step 6. Test
+
+1. From your phone, open the chat with the **test number** and send a message,
+   for example a link or "explain how RAG works to non-technical people". **The
+   first message must come from you.** The bot can only reply within 24 hours of
+   your last message.
+2. A few seconds later you should get "On it…", then the prompts and the
+   question "Should I generate it?" about a minute or two after that.
+3. For a free first test, answer `cancel`. Generating the video costs real Veo
+   credits once you approve.
+4. Then try the full flow: ask for a change in your own words, approve, watch the
+   video arrive, and answer the post question (nothing is posted while
+   `DRY_RUN=true`).
+
+If a message arrives, the server log shows a line for the webhook request. The
+tunnel's web interface (ngrok serves one on local port 4040) lists every request
+Meta sent, which is the quickest way to see whether Meta is reaching you at all.
+
+#### If something goes wrong
+
+| What you see | Likely cause and fix |
+|---|---|
+| **Verify and save** fails | The server or tunnel is not running, the address does not end with `/whatsapp/webhook`, or the verify token differs from `WHATSAPP_VERIFY_TOKEN` |
+| Your message is received but there is never a reply; the log mentions an invalid or expired token (error 190) | The temporary token expired. Generate a new one (or a System User token), update `.env`, restart the server |
+| Meta's requests show `401` in the tunnel list | `WHATSAPP_APP_SECRET` is wrong, most often the Instagram secret was used. Use the one from **App settings → Basic** |
+| No request reaches the tunnel at all | The **messages** field is not subscribed, the WhatsApp account is not subscribed to the app, or the callback address is out of date after a tunnel restart |
+| The bot never answers your number | Your number is not in `WHATSAPP_ALLOWED_NUMBERS`, or it has spaces, a `+` or dashes. Strangers are ignored by design |
+| The bot stops answering after a day or two of silence | The 24-hour window closed. Send it a message first |
+| "Account too new to create a business" | Meta's limit on new accounts. Wait an hour and retry |
+| The server will not start and names a setting | WhatsApp is partly configured. Fill the setting it names, or clear every `WHATSAPP_*` value to switch the feature off |
+
+#### Before real use
+
+The test number only reaches the phones you added. To let other people message
+the bot you need your own business number registered with Meta, business
+verification, and a System User token that does not expire. Until then, keep the
+allow-list short, because every approved request spends Veo credits and a `yes`
+posts to the connected Instagram account.
+
+If a token or secret is ever pasted somewhere it should not be, treat it as
+leaked: regenerate it in Meta, update `.env`, and restart the server.
+
+#### How the webhook is protected
+
+Meta signs every delivery with your app secret. An unsigned or wrongly signed
+request is answered `401` and starts nothing, and the webhook does not use the API
+key header. Numbers outside the allow-list are ignored silently, and each number
+is capped by `WHATSAPP_MAX_RUNS_PER_DAY`. Leave every `WHATSAPP_*` setting blank
+and the WhatsApp routes do not exist at all; `/videos` and the command line are
+unaffected.
 
 ### Limits
 
