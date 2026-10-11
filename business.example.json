@@ -1,0 +1,14 @@
+{
+  "name": "Ridgeline Coffee",
+  "niche": "specialty coffee roastery",
+  "tone": "warm, plain-spoken, no hype, quietly confident",
+  "target_audience": "home brewers aged 25-40 who already own a grinder",
+  "cta": "Order a bag at ridgeline.coffee",
+  "website": "https://ridgeline.coffee",
+  "brand_colors": ["#2F4F3E", "#E8DCC8", "#1A1A1A"],
+  "usps": [
+    "roasted to order, never sits in a warehouse",
+    "single-origin lots with the farm named on every bag",
+    "carbon-neutral shipping"
+  ]
+}

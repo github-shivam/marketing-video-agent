@@ -1,0 +1,21 @@
+# Orchestration
+langgraph>=1.2.14,<2
+langchain>=1.4.4,<2
+langgraph-checkpoint-sqlite>=3.1.1,<4
+langchain-mcp-adapters>=0.3.2,<0.4
+
+# Models
+langchain-aws>=1.8.1,<2          # Bedrock (Nova Pro) via ChatBedrockConverse
+google-genai>=2.29.0,<3          # Veo 3.1 video generation on Vertex AI
+google-cloud-storage>=3.0.0,<4   # Vertex AI writes Veo output to a GCS bucket
+
+# HTTP API
+fastapi>=0.143.0,<1
+uvicorn>=0.54.0,<1
+
+# Core
+pydantic>=2.14.0,<3
+httpx>=0.28.1,<0.29
+boto3>=1.43.0,<2
+pillow>=11,<13                   # read colours from uploaded images, fix photo orientation
+python-dotenv>=1.2.4,<2

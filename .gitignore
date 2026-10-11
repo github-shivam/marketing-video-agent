@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+.env.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Source media (personal photos)
+assets/*
+!assets/README.md
+
+# Runtime artifacts
+checkpoints.sqlite
+checkpoints.sqlite-*
+conversations.sqlite*
+output/
+uploads/
+*.mp4
+*.jpg
+*.png
+
+# Office temp/lock files
+~$*

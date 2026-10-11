@@ -1,0 +1,19 @@
+{
+  "name": "Shivam Pal",
+  "niche": "generative AI explainers for non-technical audiences",
+  "tone": "friendly, direct, speaks plainly without jargon or hype",
+  "target_audience": "working professionals in India who keep hearing about AI but have never been told clearly what it actually does",
+  "cta": "Follow for one clear AI idea a week",
+  "website": "https://avahi.ai",
+  "brand_colors": [
+    "#0F172A",
+    "#38BDF8",
+    "#F8FAFC"
+  ],
+  "usps": [
+    "explains one idea at a time instead of ten",
+    "no jargon, no doom, no hype",
+    "every explanation ties back to something you already do at work"
+  ],
+  "is_person": true
+}
